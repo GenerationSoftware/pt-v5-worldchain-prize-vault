@@ -1,6 +1,6 @@
-# Foundry template
+# PoolTogether V5 Worldchain Prize Vault
 
-Template to kickstart a Foundry project.
+Specialty Prize Vault that only allows accounts that have verified with a World ID to deposit and win prizes.
 
 ## Getting started
 
