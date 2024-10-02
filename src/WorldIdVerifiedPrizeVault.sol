@@ -255,9 +255,6 @@ contract WorldIdVerifiedPrizeVault is TwabERC20, Ownable, IERC4626, IClaimable {
         if (_assets == 0) {
             revert DepositZeroAssets();
         }
-        if (_assets > maxDeposit(_receiver)) {
-            revert DepositLimitExceeded(_receiver, balanceOf(_receiver), _assets, accountDepositLimit);
-        }
         IERC20(asset).safeTransferFrom(msg.sender, address(this), _assets);
         _mint(_receiver, _assets);
         emit IERC4626.Deposit(msg.sender, _receiver, _assets, _assets);
