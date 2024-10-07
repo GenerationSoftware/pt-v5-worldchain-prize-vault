@@ -5,7 +5,7 @@ import { TwabController } from "../lib/pt-v5-vault/src/TwabERC20.sol";
 import { PrizePool } from "../lib/pt-v5-vault/lib/pt-v5-prize-pool/src/PrizePool.sol";
 import { Ownable } from "../lib/pt-v5-vault/lib/owner-manager-contracts/contracts/Ownable.sol";
 import { Claimable } from "../lib/pt-v5-vault/src/abstract/Claimable.sol";
-import { ERC4626, ERC20, IERC20 } from "../lib/pt-v5-vault/lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
+import { ERC4626, ERC20, Math, IERC20 } from "../lib/pt-v5-vault/lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import { SafeCast } from "openzeppelin/utils/math/SafeCast.sol";
 import { IWorldIdAddressBook } from "./interfaces/IWorldIdAddressBook.sol";
 
@@ -26,13 +26,6 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     TwabController public immutable twabController;
 
     ////////////////////////////////////////////////////////////////////////////////
-    // Errors
-    ////////////////////////////////////////////////////////////////////////////////
-
-    /// @notice Thrown if the TwabController address is the zero address.
-    error TwabControllerZeroAddress();
-
-    ////////////////////////////////////////////////////////////////////////////////
     // Events
     ////////////////////////////////////////////////////////////////////////////////
 
@@ -43,10 +36,6 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     ////////////////////////////////////////////////////////////////////////////////
     // Errors
     ////////////////////////////////////////////////////////////////////////////////
-
-    /// @notice Thrown when an account requires World ID verification
-    /// @param account The account that is not verified
-    error AccountNotVerifiedWithWorldId(address account);
 
     /// @notice Thrown when a deposit exceeds the account deposit limit
     /// @param account The account receiving the deposit
@@ -59,6 +48,20 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         uint256 newBalance,
         uint256 accountDepositLimit
     );
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // Modifiers
+    ////////////////////////////////////////////////////////////////////////////////
+
+    /// @notice Enforces the deposit limit when increasing the deposit amount of an account
+    /// @param _account The account whose balance is being increased
+    /// @param _depositAmount The amount that the balance is being increased by
+    modifier enforceDepositLimit(address _account, uint256 _depositAmount) {
+        if (_depositAmount > maxDeposit(_account)) {
+            revert DepositLimitExceeded(_account, balanceOf(_account), _depositAmount, accountDepositLimit);
+        }
+        _;
+    }
 
     ////////////////////////////////////////////////////////////////////////////////
     // Constructor
@@ -81,44 +84,55 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         address owner_,
         uint256 accountDepositLimit_
     ) ERC20(name_, symbol_) ERC4626(IERC20(prizePool_.prizeToken())) Ownable(owner_) Claimable(prizePool_, claimer_) {
+        assert(address(twabController) != address(0));
         assert(address(worldIdAddressBook_) != address(0));
         twabController = prizePool_.twabController();
-        if (address(0) == address(twabController)) revert TwabControllerZeroAddress();
         worldIdAddressBook = worldIdAddressBook_;
-        _setAccountDepositLimit(accountDepositLimit_);
+        accountDepositLimit = accountDepositLimit_;
+        emit SetAccountDepositLimit(accountDepositLimit_);
     }
 
     ////////////////////////////////////////////////////////////////////////////////
     // Owner Functions
     ////////////////////////////////////////////////////////////////////////////////
 
-    /// @notice Sets a new claimer
-    /// @dev Only Owner
-    /// @param _claimer The new claimer to set
-    function setClaimer(address _claimer) external onlyOwner {
-        _setClaimer(_claimer);
-    }
-
     /// @notice Sets a new account deposit limit
     /// @dev Only Owner
     /// @param _accountDepositLimit The new account deposit limit to set
     function setAccountDepositLimit(uint256 _accountDepositLimit) external onlyOwner {
-        _setAccountDepositLimit(_accountDepositLimit);
+        accountDepositLimit = _accountDepositLimit;
+        emit SetAccountDepositLimit(_accountDepositLimit);
     }
 
     ////////////////////////////////////////////////////////////////////////////////
-    // IERC4626 Overrides
+    // ERC4626 Overrides
     ////////////////////////////////////////////////////////////////////////////////
+
+    /// @inheritdoc ERC4626
+    function _convertToAssets(uint256 shares, Math.Rounding /*rounding*/) internal view virtual override returns (uint256) {
+        return shares;
+    }
+
+    /// @inheritdoc ERC4626
+    function _convertToShares(uint256 assets, Math.Rounding /*rounding*/) internal view virtual override returns (uint256) {
+        return assets;
+    }
 
     /// @inheritdoc ERC4626
     /// @dev limited by the per-account limiter and world ID verification
     function maxDeposit(address _receiver) public view override returns (uint256) {
-        if (!_isAccountVerified(_receiver)) {
+        if (worldIdAddressBook.addressVerifiedUntil(_receiver) < block.timestamp) {
             return 0;
         } else {
             uint256 _receiverBalance = balanceOf(_receiver);
             return _receiverBalance >= accountDepositLimit ? 0 : accountDepositLimit - _receiverBalance;
         }
+    }
+
+    /// @inheritdoc ERC4626
+    /// @dev limited by the per-account limiter and world ID verification
+    function maxMint(address _receiver) public view override returns (uint256) {
+        return maxDeposit(_receiver);
     }
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -146,8 +160,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @dev `_receiver` cannot be the zero address.
     /// @param _receiver Address that will receive the minted tokens
     /// @param _amount Tokens to mint
-    function _mint(address _receiver, uint256 _amount) internal virtual override {
-        _checkMint(_receiver, _amount);
+    function _mint(address _receiver, uint256 _amount) internal virtual override enforceDepositLimit(_receiver, _amount) {
         twabController.mint(_receiver, SafeCast.toUint96(_amount));
         emit Transfer(address(0), _receiver, _amount);
     }
@@ -171,36 +184,9 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @param _from Address to transfer from
     /// @param _to Address to transfer to
     /// @param _amount The amount of tokens to transfer
-    function _transfer(address _from, address _to, uint256 _amount) internal virtual override {
-        _checkMint(_to, _amount);
+    function _transfer(address _from, address _to, uint256 _amount) internal virtual override enforceDepositLimit(_to, _amount) {
         twabController.transfer(_from, _to, SafeCast.toUint96(_amount));
         emit Transfer(_from, _to, _amount);
-    }
-
-    function _checkMint(address _to, uint256 _amount) internal virtual {
-        if (worldIdAddressBook.addressVerifiedUntil(_to) < block.timestamp) {
-            revert AccountNotVerifiedWithWorldId(_to);
-        }
-        if (_amount > maxDeposit(_to)) {
-            revert DepositLimitExceeded(_to, balanceOf(_to), _amount, accountDepositLimit);
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////////
-    // Internal Functions
-    ////////////////////////////////////////////////////////////////////////////////
-
-    /// @notice Sets a new account deposit limit
-    /// @param _accountDepositLimit The new account deposit limit
-    function _setAccountDepositLimit(uint256 _accountDepositLimit) internal {
-        accountDepositLimit = _accountDepositLimit;
-        emit SetAccountDepositLimit(_accountDepositLimit);
-    }
-
-    /// @notice Returns true if the account is actively verified with the World ID address book
-    /// @param _account The account to check
-    function _isAccountVerified(address _account) internal view returns (bool) {
-        return worldIdAddressBook.addressVerifiedUntil(_account) >= block.timestamp;
     }
 
 }
