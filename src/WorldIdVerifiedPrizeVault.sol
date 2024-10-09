@@ -41,12 +41,12 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @param account The account receiving the deposit
     /// @param currentBalance The current account balance
     /// @param newBalance The new balance addition
-    /// @param accountDepositLimit The account deposit limit
+    /// @param remainingDepositLimit The account's remaining deposit limit
     error DepositLimitExceeded(
         address account,
         uint256 currentBalance,
         uint256 newBalance,
-        uint256 accountDepositLimit
+        uint256 remainingDepositLimit
     );
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -58,7 +58,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @param _depositAmount The amount that the balance is being increased by
     modifier enforceDepositLimit(address _account, uint256 _depositAmount) {
         if (_depositAmount > maxDeposit(_account)) {
-            revert DepositLimitExceeded(_account, balanceOf(_account), _depositAmount, accountDepositLimit);
+            revert DepositLimitExceeded(_account, balanceOf(_account), _depositAmount, maxDeposit(_account));
         }
         _;
     }
@@ -84,7 +84,6 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         address owner_,
         uint256 accountDepositLimit_
     ) ERC20(name_, symbol_) ERC4626(IERC20(prizePool_.prizeToken())) Ownable(owner_) Claimable(prizePool_, claimer_) {
-        assert(address(twabController) != address(0));
         assert(address(worldIdAddressBook_) != address(0));
         twabController = prizePool_.twabController();
         worldIdAddressBook = worldIdAddressBook_;
