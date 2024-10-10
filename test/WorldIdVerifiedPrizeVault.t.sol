@@ -4,9 +4,10 @@ pragma solidity ^0.8.24;
 import { Test, stdError } from "forge-std/Test.sol";
 
 import { WorldIdVerifiedPrizeVaultWrapper, WorldIdVerifiedPrizeVault } from "./contracts/WorldIdVerifiedPrizeVaultWrapper.sol";
+import { ERC4626 } from "../lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
 import { TwabController } from "pt-v5-twab-controller/TwabController.sol";
-import { PrizePool, ConstructorParams } from "pt-v5-prize-pool/PrizePool.sol";
-import { ERC20Mock } from "../lib/pt-v5-vault/lib/openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
+import { PrizePool, ConstructorParams, IERC20 as PrizePoolIERC20 } from "pt-v5-prize-pool/PrizePool.sol";
+import { ERC20Mock } from "../lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol";
 import { MockWorldIdAddressBook, IWorldIdAddressBook } from "./contracts/MockWorldIdAddressBook.sol";
 
 contract WorldIdVerifiedPrizeVaultTest is Test {
@@ -27,12 +28,14 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
 
     address alice;
     address bob;
+    address nonVerifiedAddress;
     address claimer;
     address owner;
 
     function setUp() public {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
+        nonVerifiedAddress = makeAddr("nonVerifiedAddress");
         claimer = makeAddr("claimer");
         owner = makeAddr("owner");
 
@@ -48,7 +51,7 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
         twabController = new TwabController(periodLength, periodOffset);
         prizePool = new PrizePool(
             ConstructorParams(
-                prizeToken,
+                PrizePoolIERC20(address(prizeToken)),
                 twabController,
                 address(this),
                 0.5e18,
@@ -117,6 +120,18 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
 
     function testConstructor_symbolSet() public view {
         assertEq(worldVault.symbol(), "przWLD");
+    }
+
+    function testConstructor_ownerSet() public view {
+        assertEq(worldVault.owner(), owner);
+    }
+
+    function testConstructor_claimerSet() public view {
+        assertEq(worldVault.claimer(), claimer);
+    }
+
+    function testConstructor_assetSet() public view {
+        assertEq(worldVault.asset(), address(prizeToken));
     }
 
     /* ============ balanceOf ============ */
@@ -253,6 +268,263 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
         assertEq(worldVault.balanceOf(alice), 0);
         assertEq(worldVault.balanceOf(bob), 0);
         assertEq(worldVault.totalSupply(), 0);
+    }
+
+    /* ============ verified wallet deposit limit ============ */
+
+    function testDepositLimit_depositNonVerified() public {
+        vm.startPrank(nonVerifiedAddress);
+        prizeToken.mint(nonVerifiedAddress, 1e18);
+        prizeToken.approve(address(worldVault), 1e18);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxDeposit.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.deposit(1e18, nonVerifiedAddress);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxMint.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.mint(1e18, nonVerifiedAddress);
+
+        vm.stopPrank();
+    }
+
+    function testDepositLimit_transferToNonVerified() public {
+        vm.startPrank(alice);
+        prizeToken.mint(alice, 1e18);
+        prizeToken.approve(address(worldVault), 1e18);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxDeposit.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.deposit(1e18, nonVerifiedAddress); // transfer to non-verified
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxMint.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.mint(1e18, nonVerifiedAddress); // transfer to non-verified
+
+        worldVault.deposit(1e18, alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.transfer(nonVerifiedAddress, 1e18);
+
+        worldVault.approve(address(this), 1e18);
+        vm.stopPrank();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                nonVerifiedAddress,
+                1e18,
+                0
+            )
+        );
+        worldVault.transferFrom(alice, nonVerifiedAddress, 1e18);
+    }
+
+    function testDepositLimit_previouslyVerifiedAccount() public {
+        vm.startPrank(alice);
+        prizeToken.mint(alice, 100e18);
+        prizeToken.approve(address(worldVault), 100e18);
+        worldVault.deposit(1e18, alice);
+
+        vm.warp(worldIdAddressBook.addressVerifiedUntil(alice) + 1);
+
+        // alice cannot make new deposits or mints
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxDeposit.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.deposit(1e18, alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxMint.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.mint(1e18, alice);
+
+        // others cannot transfer shares to alice
+        vm.startPrank(bob);
+        worldIdAddressBook.setAccountVerification(block.timestamp);
+        prizeToken.mint(bob, 100e18);
+        prizeToken.approve(address(worldVault), 100e18);
+        worldVault.deposit(1e18, bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.transfer(alice, 1e18);
+
+        // alice can still transfer shares to other verified wallets
+        vm.startPrank(alice);
+        assertEq(worldVault.balanceOf(alice), 1e18);
+        worldVault.transfer(bob, 0.5e18);
+        assertEq(worldVault.balanceOf(alice), 0.5e18);
+        assertEq(worldVault.balanceOf(bob), 1.5e18);
+
+        // alice cannot transfer shares to a non-verified wallet
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                nonVerifiedAddress,
+                0.1e18,
+                0
+            )
+        );
+        worldVault.transfer(nonVerifiedAddress, 0.1e18);
+
+        // alice can still withdraw or redeem her shares
+        assertEq(worldVault.balanceOf(alice), 0.5e18);
+        assertEq(prizeToken.balanceOf(alice), 99e18);
+        worldVault.withdraw(0.25e18, alice, alice);
+        assertEq(worldVault.balanceOf(alice), 0.25e18);
+        assertEq(prizeToken.balanceOf(alice), 99.25e18);
+        worldVault.redeem(0.25e18, alice, alice);
+        assertEq(worldVault.balanceOf(alice), 0);
+        assertEq(prizeToken.balanceOf(alice), 99.5e18);
+
+        vm.stopPrank();
+    }
+
+    function testDepositLimit_previouslyAccountWithMoreThanCurrentLimit() public {
+        vm.startPrank(alice);
+        prizeToken.mint(alice, 200e18);
+        prizeToken.approve(address(worldVault), 200e18);
+        worldVault.deposit(100e18, alice);
+
+        // new limit is set to lower than before
+        vm.startPrank(owner);
+        worldVault.setAccountDepositLimit(10e18);
+
+        // alice cannot make new deposits or mints
+        vm.startPrank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxDeposit.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.deposit(1e18, alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ERC4626.ERC4626ExceededMaxMint.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.mint(1e18, alice);
+
+        // others cannot transfer shares to alice
+        vm.startPrank(bob);
+        prizeToken.mint(bob, 100e18);
+        prizeToken.approve(address(worldVault), 100e18);
+        worldVault.deposit(1e18, bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                alice,
+                1e18,
+                0
+            )
+        );
+        worldVault.transfer(alice, 1e18);
+
+        // alice can still transfer shares to other verified wallets
+        vm.startPrank(alice);
+        assertEq(worldVault.balanceOf(alice), 100e18);
+        worldVault.transfer(bob, 0.5e18);
+        assertEq(worldVault.balanceOf(alice), 99.5e18);
+        assertEq(worldVault.balanceOf(bob), 1.5e18);
+
+        // alice cannot transfer shares to a non-verified wallet
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WorldIdVerifiedPrizeVault.TransferLimitExceeded.selector,
+                nonVerifiedAddress,
+                0.1e18,
+                0
+            )
+        );
+        worldVault.transfer(nonVerifiedAddress, 0.1e18);
+
+        // alice can still withdraw or redeem her shares
+        assertEq(worldVault.balanceOf(alice), 99.5e18);
+        assertEq(prizeToken.balanceOf(alice), 100e18);
+        worldVault.withdraw(0.5e18, alice, alice);
+        assertEq(worldVault.balanceOf(alice), 99e18);
+        assertEq(prizeToken.balanceOf(alice), 100.5e18);
+        worldVault.redeem(99e18, alice, alice);
+        assertEq(worldVault.balanceOf(alice), 0);
+        assertEq(prizeToken.balanceOf(alice), 199.5e18);
+
+        // alice can make new deposits since she is now under the limit
+        assertEq(worldVault.maxDeposit(alice), 10e18);
+        assertEq(worldVault.maxMint(alice), 10e18);
+
+        vm.stopPrank();
+    }
+
+    function testSetDepositLimit_notOwner() public {
+        vm.expectRevert();
+        worldVault.setAccountDepositLimit(10e18);
+    }
+
+    function testSetDepositLimit_isOwner() public {
+        vm.startPrank(owner);
+        assertEq(worldVault.accountDepositLimit(), 100e18);
+
+        vm.expectEmit();
+        emit SetAccountDepositLimit(10e18);
+        worldVault.setAccountDepositLimit(10e18);
+        assertEq(worldVault.accountDepositLimit(), 10e18);
+
+        vm.expectEmit();
+        emit SetAccountDepositLimit(200e18);
+        worldVault.setAccountDepositLimit(200e18);
+        assertEq(worldVault.accountDepositLimit(), 200e18);
+
+        vm.stopPrank();
     }
 
 }
