@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import { TwabController } from "../lib/pt-v5-vault/src/TwabERC20.sol";
+import { TwabController } from "../lib/pt-v5-vault/lib/pt-v5-twab-controller/src/TwabController.sol";
 import { PrizePool } from "../lib/pt-v5-vault/lib/pt-v5-prize-pool/src/PrizePool.sol";
 import { Ownable } from "../lib/pt-v5-vault/lib/owner-manager-contracts/contracts/Ownable.sol";
 import { Claimable } from "../lib/pt-v5-vault/src/abstract/Claimable.sol";
