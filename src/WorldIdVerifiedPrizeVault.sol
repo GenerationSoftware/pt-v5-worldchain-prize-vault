@@ -9,6 +9,14 @@ import { ERC4626, ERC20, Math, IERC20 } from "../lib/pt-v5-vault/lib/openzeppeli
 import { SafeCast } from "openzeppelin/utils/math/SafeCast.sol";
 import { IWorldIdAddressBook } from "./interfaces/IWorldIdAddressBook.sol";
 
+/// @title World ID Verified Prize Vault for PoolTogether
+/// @notice Staking prize vault that only allows World ID verified wallets to receive
+/// vault shares and enforces a deposit limit on all accounts.
+/// @author G9 Software Inc.
+/// @dev This vault has no yield and always mints and redeems shares at a 1:1 ratio
+/// with assets.
+/// @dev Assets sent directly through this vault without the use of the `deposit` or
+/// `mint` functions will be lost forever.
 contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     using SafeCast for uint256;
 
@@ -39,12 +47,10 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
 
     /// @notice Thrown when a deposit exceeds the account deposit limit
     /// @param account The account receiving the deposit
-    /// @param currentBalance The current account balance
-    /// @param newBalance The new balance addition
+    /// @param newDepositAmount The new balance being deposited
     /// @param remainingDepositLimit The account's remaining deposit limit
     error DepositLimitExceeded(
         address account,
-        uint256 currentBalance,
         uint256 newBalance,
         uint256 remainingDepositLimit
     );
@@ -56,9 +62,9 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @notice Enforces the deposit limit when increasing the deposit amount of an account
     /// @param _account The account whose balance is being increased
     /// @param _depositAmount The amount that the balance is being increased by
-    modifier enforceDepositLimit(address _account, uint256 _depositAmount) {
+    modifier checkDepositLimit(address _account, uint256 _depositAmount) {
         if (_depositAmount > maxDeposit(_account)) {
-            revert DepositLimitExceeded(_account, balanceOf(_account), _depositAmount, maxDeposit(_account));
+            revert DepositLimitExceeded(_account, _depositAmount, maxDeposit(_account));
         }
         _;
     }
@@ -68,6 +74,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     ////////////////////////////////////////////////////////////////////////////////
     
     /// @notice Constructor
+    /// @dev Asserts that `worldIdAddressBook_` is not the zero address
     /// @param name_ The prize vault name
     /// @param symbol_ The prize vault symbol
     /// @param prizePool_ The prize pool this vault is participating in
@@ -135,7 +142,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     }
 
     ////////////////////////////////////////////////////////////////////////////////
-    // IERC20 Overrides
+    // ERC20 Overrides
     ////////////////////////////////////////////////////////////////////////////////
 
     /// @inheritdoc ERC20
@@ -159,7 +166,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @dev `_receiver` cannot be the zero address.
     /// @param _receiver Address that will receive the minted tokens
     /// @param _amount Tokens to mint
-    function _mint(address _receiver, uint256 _amount) internal virtual override enforceDepositLimit(_receiver, _amount) {
+    function _mint(address _receiver, uint256 _amount) internal virtual override checkDepositLimit(_receiver, _amount) {
         twabController.mint(_receiver, SafeCast.toUint96(_amount));
         emit Transfer(address(0), _receiver, _amount);
     }
@@ -183,7 +190,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @param _from Address to transfer from
     /// @param _to Address to transfer to
     /// @param _amount The amount of tokens to transfer
-    function _transfer(address _from, address _to, uint256 _amount) internal virtual override enforceDepositLimit(_to, _amount) {
+    function _transfer(address _from, address _to, uint256 _amount) internal virtual override checkDepositLimit(_to, _amount) {
         twabController.transfer(_from, _to, SafeCast.toUint96(_amount));
         emit Transfer(_from, _to, _amount);
     }
