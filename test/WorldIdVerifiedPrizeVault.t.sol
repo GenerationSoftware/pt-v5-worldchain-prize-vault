@@ -3,16 +3,17 @@ pragma solidity ^0.8.24;
 
 import { Test, stdError } from "forge-std/Test.sol";
 
-import { WorldIdVerifiedPrizeVaultWrapper } from "./contracts/WorldIdVerifiedPrizeVaultWrapper.sol";
+import { WorldIdVerifiedPrizeVaultWrapper, WorldIdVerifiedPrizeVault } from "./contracts/WorldIdVerifiedPrizeVaultWrapper.sol";
 import { TwabController } from "pt-v5-twab-controller/TwabController.sol";
 import { PrizePool, ConstructorParams } from "pt-v5-prize-pool/PrizePool.sol";
 import { ERC20Mock } from "../lib/pt-v5-vault/lib/openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
-import { MockWorldIdAddressBook } from "./contracts/MockWorldIdAddressBook.sol";
+import { MockWorldIdAddressBook, IWorldIdAddressBook } from "./contracts/MockWorldIdAddressBook.sol";
 
 contract WorldIdVerifiedPrizeVaultTest is Test {
 
     // Events
     event Transfer(address indexed from, address indexed to, uint256 amount);
+    event SetAccountDepositLimit(uint256 accountDepositLimit);
 
     WorldIdVerifiedPrizeVaultWrapper public worldVault;
 
@@ -74,27 +75,59 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
 
     /* ============ Constructor ============ */
 
-    function testConstructor_twabControllerSet() public {
+    function testConstructor_twabControllerSet() public view {
         assertEq(address(worldVault.twabController()), address(twabController));
     }
 
-    function testConstructor_nameSet() public {
+    function testConstructor_worldIdAddressBookSet() public view {
+        assertEq(address(worldVault.worldIdAddressBook()), address(worldIdAddressBook));
+    }
+
+    function testConstructor_worldIdAddressBookNotZeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(WorldIdVerifiedPrizeVault.WorldIdAddressBookZeroAddress.selector));
+        worldVault = new WorldIdVerifiedPrizeVaultWrapper(
+            "World Vault",
+            "przWLD",
+            prizePool,
+            IWorldIdAddressBook(address(0)), // address book
+            claimer,
+            owner,
+            101e18 // account deposit limit
+        );
+    }
+
+    function testConstructor_accountDepositLimitSet() public {
+        vm.expectEmit();
+        emit SetAccountDepositLimit(101e18);
+        worldVault = new WorldIdVerifiedPrizeVaultWrapper(
+            "World Vault",
+            "przWLD",
+            prizePool,
+            worldIdAddressBook,
+            claimer,
+            owner,
+            101e18 // account deposit limit
+        );
+        assertEq(worldVault.accountDepositLimit(), uint256(101e18));
+    }
+
+    function testConstructor_nameSet() public view {
         assertEq(worldVault.name(), "World Vault");
     }
 
-    function testConstructor_symbolSet() public {
+    function testConstructor_symbolSet() public view {
         assertEq(worldVault.symbol(), "przWLD");
     }
 
     /* ============ balanceOf ============ */
 
-    function testBalanceOf_startingBalanceZero() public {
+    function testBalanceOf_startingBalanceZero() public view {
         assertEq(worldVault.balanceOf(address(this)), 0);
     }
 
     /* ============ totalSupply ============ */
 
-    function testBalanceOf_startingSupplyZero() public {
+    function testBalanceOf_startingSupplyZero() public view {
         assertEq(worldVault.totalSupply(), 0);
     }
 

@@ -55,6 +55,9 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         uint256 remainingDepositLimit
     );
 
+    /// @notice Thrown when the `worldIdAddressBook` is set to the zero address.
+    error WorldIdAddressBookZeroAddress();
+
     ////////////////////////////////////////////////////////////////////////////////
     // Constructor
     ////////////////////////////////////////////////////////////////////////////////
@@ -77,7 +80,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         address owner_,
         uint256 accountDepositLimit_
     ) ERC20(name_, symbol_) ERC4626(IERC20(address(prizePool_.prizeToken()))) Ownable(owner_) Claimable(prizePool_, claimer_) {
-        assert(address(worldIdAddressBook_) != address(0));
+        if(address(0) == address(worldIdAddressBook_)) revert WorldIdAddressBookZeroAddress();
         twabController = prizePool_.twabController();
         worldIdAddressBook = worldIdAddressBook_;
         accountDepositLimit = accountDepositLimit_;
