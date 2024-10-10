@@ -5,8 +5,8 @@ import { TwabController } from "../lib/pt-v5-vault/src/TwabERC20.sol";
 import { PrizePool } from "../lib/pt-v5-vault/lib/pt-v5-prize-pool/src/PrizePool.sol";
 import { Ownable } from "../lib/pt-v5-vault/lib/owner-manager-contracts/contracts/Ownable.sol";
 import { Claimable } from "../lib/pt-v5-vault/src/abstract/Claimable.sol";
-import { ERC4626, ERC20, Math, IERC20 } from "../lib/pt-v5-vault/lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
-import { SafeCast } from "openzeppelin/utils/math/SafeCast.sol";
+import { ERC4626, ERC20, Math, IERC20 } from "../lib/openzeppelin-contracts/contracts/token/ERC20/extensions/ERC4626.sol";
+import { SafeCast } from "../lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 import { IWorldIdAddressBook } from "./interfaces/IWorldIdAddressBook.sol";
 
 /// @title World ID Verified Prize Vault for PoolTogether
@@ -45,29 +45,15 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     // Errors
     ////////////////////////////////////////////////////////////////////////////////
 
-    /// @notice Thrown when a deposit exceeds the account deposit limit
-    /// @param account The account receiving the deposit
-    /// @param newDepositAmount The new balance being deposited
+    /// @notice Thrown when a transfer exceeds the receiving account deposit limit
+    /// @param account The account receiving the transfer
+    /// @param amount The balance being transferred
     /// @param remainingDepositLimit The account's remaining deposit limit
-    error DepositLimitExceeded(
+    error TransferLimitExceeded(
         address account,
-        uint256 newBalance,
+        uint256 amount,
         uint256 remainingDepositLimit
     );
-
-    ////////////////////////////////////////////////////////////////////////////////
-    // Modifiers
-    ////////////////////////////////////////////////////////////////////////////////
-
-    /// @notice Enforces the deposit limit when increasing the deposit amount of an account
-    /// @param _account The account whose balance is being increased
-    /// @param _depositAmount The amount that the balance is being increased by
-    modifier checkDepositLimit(address _account, uint256 _depositAmount) {
-        if (_depositAmount > maxDeposit(_account)) {
-            revert DepositLimitExceeded(_account, _depositAmount, maxDeposit(_account));
-        }
-        _;
-    }
 
     ////////////////////////////////////////////////////////////////////////////////
     // Constructor
@@ -90,7 +76,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
         address claimer_,
         address owner_,
         uint256 accountDepositLimit_
-    ) ERC20(name_, symbol_) ERC4626(IERC20(prizePool_.prizeToken())) Ownable(owner_) Claimable(prizePool_, claimer_) {
+    ) ERC20(name_, symbol_) ERC4626(IERC20(address(prizePool_.prizeToken()))) Ownable(owner_) Claimable(prizePool_, claimer_) {
         assert(address(worldIdAddressBook_) != address(0));
         twabController = prizePool_.twabController();
         worldIdAddressBook = worldIdAddressBook_;
@@ -161,38 +147,24 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     // Internal ERC20 Overrides
     ////////////////////////////////////////////////////////////////////////////////
 
-    /// @notice Mints tokens to `_receiver` and increases the total supply.
-    /// @dev Emits a {Transfer} event with `from` set to the zero address.
-    /// @dev `_receiver` cannot be the zero address.
-    /// @param _receiver Address that will receive the minted tokens
-    /// @param _amount Tokens to mint
-    function _mint(address _receiver, uint256 _amount) internal virtual override checkDepositLimit(_receiver, _amount) {
-        twabController.mint(_receiver, SafeCast.toUint96(_amount));
-        emit Transfer(address(0), _receiver, _amount);
-    }
-
-    /// @notice Destroys tokens from `_owner` and reduces the total supply.
-    /// @dev Emits a {Transfer} event with `to` set to the zero address.
-    /// @dev `_owner` cannot be the zero address.
-    /// @dev `_owner` must have at least `_amount` tokens.
-    /// @param _owner The owner of the tokens
-    /// @param _amount The amount of tokens to burn
-    function _burn(address _owner, uint256 _amount) internal virtual override {
-        twabController.burn(_owner, SafeCast.toUint96(_amount));
-        emit Transfer(_owner, address(0), _amount);
-    }
-
-    /// @notice Transfers tokens from one account to another.
-    /// @dev Emits a {Transfer} event.
-    /// @dev `_from` cannot be the zero address.
-    /// @dev `_to` cannot be the zero address.
-    /// @dev `_from` must have a balance of at least `_amount`.
-    /// @param _from Address to transfer from
-    /// @param _to Address to transfer to
-    /// @param _amount The amount of tokens to transfer
-    function _transfer(address _from, address _to, uint256 _amount) internal virtual override checkDepositLimit(_to, _amount) {
-        twabController.transfer(_from, _to, SafeCast.toUint96(_amount));
-        emit Transfer(_from, _to, _amount);
+    /// @notice Override for ERC20 token transfer logic
+    /// @dev Deposit limit is already handled for mint case since the ERC4626 contract enforces
+    /// this on deposit and mint calls.
+    /// @dev Deposit limit is not enforced on burn since no balances are being increased.
+    /// @dev Deposit limit is enforced on transfer in this function when the recipient is
+    /// different from the sender.
+    function _update(address _from, address _to, uint256 _value) internal virtual override {
+        if (_from == address(0)) {
+            twabController.mint(_to, SafeCast.toUint96(_value));
+        } else if (_to == address(0)) {
+            twabController.burn(_from, SafeCast.toUint96(_value));
+        } else {
+            if (_from != _to && _value > maxDeposit(_to)) {
+                revert TransferLimitExceeded(_to, _value, maxDeposit(_to));
+            }
+            twabController.transfer(_from, _to, SafeCast.toUint96(_value));
+        }
+        emit Transfer(_from, _to, _value);
     }
 
 }
