@@ -1,16 +1,20 @@
 # PoolTogether V5 Worldchain Prize Vault
 
-Specialty Prize Vault that only allows accounts that have verified with a World ID to deposit and win prizes.
+This is a specialty prize vault for PoolTogether on World Chain that only allows accounts that have verified with a World ID to deposit and win prizes. Addresses are verified using an address book contract provided on worldchain. In addition, the owner of this vault can set a deposit limit that cannot be exceeded by verified accounts.
 
-## Getting started
+## Assumptions
 
-The easiest way to get started is by clicking the [Use this template](https://github.com/GenerationSoftware/foundry-template/generate) button at the top right of this page.
+- This vault has no yield source and will generate win chance through external contributions to the prize pool on its behalf.
+- It is assumed that a single World ID can only verify one address at a time and that they must wait 3 months before verifying a new address.
+- The asset of this vault will be the Worldcoin token on World Chain, which will also be the prize token of the prize pool.
+- The claimer contract used for this vault is assumed to be functional and will incentivise all available prizes to be claimed.
+- No assets will be directly sent to the vault without the use of a `deposit` or `mint` function. These will be lost forever if they are sent to the vault directly.
+- The vault share token will not be used for any other purpose other than holding for win chance (for example, there will be no liquidity of the vault share on AMMs)
 
-If you prefer to go the CLI way:
+## Known Issues
 
-```
-forge init my-project --template https://github.com/GenerationSoftware/foundry-template
-```
+- Since world IDs can verify new addresses every few months, a depositor can gain more win chance every few months by verifying a new address and depositing more with that address. This will not be addressed in this implementation.
+- It is possible for a verified account to end up with more vault shares than the current max limit if they deposited prior to the vault owner lowering the max deposit limit. The owner will be aware of this issue.
 
 ## Development
 
@@ -26,6 +30,7 @@ Install dependencies:
 
 ```
 npm i
+forge install
 ```
 
 ### Env
@@ -66,8 +71,6 @@ open coverage/index.html
 
 ### Code quality
 
-[Husky](https://typicode.github.io/husky/#/) is used to run [lint-staged](https://github.com/okonet/lint-staged) and tests when committing.
-
 [Prettier](https://prettier.io) is used to format TypeScript and Solidity code. Use it by running:
 
 ```
@@ -87,5 +90,3 @@ A default Github Actions workflow is setup to execute on push and pull request.
 It will build the contracts and run the test coverage.
 
 You can modify it here: [.github/workflows/coverage.yml](.github/workflows/coverage.yml)
-
-For the coverage to work, you will need to setup the `MAINNET_RPC_URL` repository secret in the settings of your Github repository.
