@@ -10,3 +10,11 @@ gas_reports = ["Foo"]
 [rpc_endpoints]
 world = "${WORLD_RPC_URL}"
 worldSepolia = "${WORLD_SEPOLIA_RPC_URL}"
+
+[fuzz]
+runs = 10
+max_test_rejects = 10000
+
+[invariant]
+runs = 10
+max_test_rejects = 1000

@@ -26,6 +26,8 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
     uint32 periodLength = 1 days;
     uint32 periodOffset = 0;
 
+    uint256 accountDepositLimit = 100e18;
+
     address alice;
     address bob;
     address nonVerifiedAddress;
@@ -72,7 +74,7 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
             worldIdAddressBook,
             claimer,
             owner,
-            100e18 // account deposit limit
+            accountDepositLimit
         );
     }
 
@@ -512,7 +514,7 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
 
     function testSetDepositLimit_isOwner() public {
         vm.startPrank(owner);
-        assertEq(worldVault.accountDepositLimit(), 100e18);
+        assertEq(worldVault.accountDepositLimit(), accountDepositLimit);
 
         vm.expectEmit();
         emit SetAccountDepositLimit(10e18);
