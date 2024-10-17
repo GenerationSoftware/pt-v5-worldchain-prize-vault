@@ -44,7 +44,7 @@ contract PrizeVaultInvariant is Test {
     function invariantCantDepositMoreThanMax() external useCurrentTime {
         address alice = vaultHarness.alice();
         WorldIdVerifiedPrizeVaultWrapper worldVault = vaultHarness.worldVault();
-        if (vaultHarness.worldIdAddressBook().addressVerifiedUntil(alice) >= block.timestamp) {
+        if (vaultHarness.worldIdAddressBook().addressVerifiedUntil(alice) > block.timestamp) {
             uint256 balance = worldVault.balanceOf(alice);
             uint256 maxDepositLimit = worldVault.accountDepositLimit();
             if (balance >= maxDepositLimit) {
