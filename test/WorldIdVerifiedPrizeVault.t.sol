@@ -357,7 +357,7 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
         prizeToken.approve(address(worldVault), 100e18);
         worldVault.deposit(1e18, alice);
 
-        vm.warp(worldIdAddressBook.addressVerifiedUntil(alice) + 1);
+        vm.warp(worldIdAddressBook.addressVerifiedUntil(alice));
 
         // alice cannot make new deposits or mints
         vm.expectRevert(
@@ -381,7 +381,7 @@ contract WorldIdVerifiedPrizeVaultTest is Test {
 
         // others cannot transfer shares to alice
         vm.startPrank(bob);
-        worldIdAddressBook.setAccountVerification(block.timestamp);
+        worldIdAddressBook.setAccountVerification(block.timestamp + 1);
         prizeToken.mint(bob, 100e18);
         prizeToken.approve(address(worldVault), 100e18);
         worldVault.deposit(1e18, bob);

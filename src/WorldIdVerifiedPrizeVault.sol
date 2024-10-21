@@ -116,7 +116,7 @@ contract WorldIdVerifiedPrizeVault is Ownable, ERC4626, Claimable {
     /// @inheritdoc ERC4626
     /// @dev limited by the per-account limiter and world ID verification
     function maxDeposit(address _receiver) public view override returns (uint256) {
-        if (worldIdAddressBook.addressVerifiedUntil(_receiver) < block.timestamp) {
+        if (worldIdAddressBook.addressVerifiedUntil(_receiver) <= block.timestamp) {
             return 0;
         } else {
             uint256 _receiverBalance = balanceOf(_receiver);
